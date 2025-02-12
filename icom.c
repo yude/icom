@@ -29,6 +29,21 @@ findCRLFSP(void const *payload, void const *data_end)
 	return -1;
 }
 
+/*
+ * 文字列の IPv4 アドレスを 16 進数に変換する
+ */
+uint32_t
+convert_ipv4_into_hex(const char *ip_str)
+{
+	struct in_addr addr;
+
+	if (inet_pton(AF_INET, ip_str, &addr) == 1)
+		return ntohl(addr.s_addr);
+	else
+		fprintf(stderr, "provided FROMADDR is not a valid IPv4 address\n");
+		abort();
+}
+
 int SEC("prog")
 icom(struct xdp_md *ctx)
 {
@@ -58,9 +73,38 @@ icom(struct xdp_md *ctx)
 	if ((void *)(udp + 1) > data_end)
 		return XDP_PASS;
 
+	
+	/* ユーザによって指定された差出人を、環境変数から読み取る */
+	const char *from_addr_env = getenv("FROMADDR")
+	if !(from_addr_env)
+		fprintf(stderr, "FROMADDR is not specified\n");
+		abort();
+
+	/*
+	 * ユーザから提供された IPv4 アドレスを示す文字列を解釈する
+	 * 複数指定するときは、コンマ区切りで指定しなければならない
+	 *
+	 * e.g.
+	 *	単数のとき、`192.0.2.1`
+	 *	複数のとき、`192.0.2.1,192.0.2.2`
+	 */
+	char *from_addr_tokenize_source = strdup(from_addr_env);
+	if (!from_addr_tokenize_source)
+		fprintf(stderr, "provided FROMADDR is invalid\n");
+		abort();
+
+	/* コンマで区切られた IPv4 アドレスを分割する */
+	char *from_addr = strtok(from_addr_tokenize_source, ",");
+	bool from_addr_is_icom = false;
+	while (from_addr)
+		/* 関係のある IPv4 アドレスであるかを判定する */
+		if (ip->saddr == __constant_htonl(convert_ipv4_into_hex(from_addr)))
+			from_addr_is_icom = true;
+		/* 複数個 IPv4 アドレスが提供されたとき、次のアドレスへシークする */
+		from_addr = strtok(NULL, ",");
+	
 	/* 関係ない差出人だったら何もしない（ホストオーダ） */
-#define FROMADDR	0xAC14DE01	/* 172.20.222.1 */
-	if (ip->saddr != __constant_htonl(SADDR))
+	if !(from_addr_is_icom)
 		return XDP_PASS;
 
 	/* 関係ないポート宛だったら何もしない（ホストオーダ） */
